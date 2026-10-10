@@ -1,0 +1,1136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>F1 LAP TIMER OVERLAY</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --carbon: #0a0c0e;
+    --carbon-2: #14171a;
+    --race-red: #e10600;
+    --amber: #ffb300;
+    --white: #f2f4f6;
+    --grey: #7c8590;
+    --green: #00d97e;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{
+    background: transparent;
+    width:100%; height:100%;
+    font-family:'Titillium Web', sans-serif;
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  body.preview-bg{
+    background:
+      repeating-conic-gradient(#1c1f22 0% 25%, #101214 0% 50%) 50% / 24px 24px;
+  }
+
+  #app{
+    position:relative;
+    display:inline-flex;
+    align-items:stretch;
+    padding:0;
+  }
+
+  .panel{
+    display:flex;
+    align-items:stretch;
+    background: linear-gradient(180deg, rgba(10,12,14,0.92) 0%, rgba(10,12,14,0.86) 100%);
+    border:1px solid rgba(255,255,255,0.06);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.45);
+    position:relative;
+    overflow:hidden;
+    min-width:520px;
+    height:126px;
+  }
+  .panel::before{
+    /* signature: thin red/amber speed-stripe that sweeps on lap change */
+    content:"";
+    position:absolute; top:0; left:0; height:4px; width:100%;
+    background: linear-gradient(90deg, var(--race-red), var(--amber));
+    transform: scaleX(0);
+    transform-origin:left;
+    opacity:0.9;
+  }
+  .panel.flash::before{
+    animation: sweep 0.6s ease-out;
+  }
+  @keyframes sweep{
+    0%{ transform:scaleX(0); }
+    60%{ transform:scaleX(1); }
+    100%{ transform:scaleX(1); opacity:0; }
+  }
+
+  .segment{
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    padding: 14px 26px;
+  }
+
+  .lap-segment{
+    border-right:1px solid rgba(255,255,255,0.08);
+    position:relative;
+    flex:0 0 224px;
+    width:224px;
+  }
+  .checker{
+    position:absolute; top:0; right:0; bottom:0; width:6px;
+    background-image:
+      linear-gradient(45deg, #fff 25%, transparent 25%),
+      linear-gradient(-45deg, #fff 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #fff 75%),
+      linear-gradient(-45deg, transparent 75%, #fff 75%);
+    background-size:6px 6px;
+    background-position:0 0, 0 3px, 3px -3px, -3px 0px;
+    opacity:0.12;
+  }
+  .lap-segment .eyebrow{
+    margin-left:44px; /* SESSION見出しなど：左上のバッジと被らないように右へずらす */
+  }
+  .lap-header{
+    display:flex;
+    align-items:baseline;
+    gap:10px;
+    margin-left:44px; /* 左上の決勝バッジと被らないように右へずらす */
+  }
+  .lap-header .lap-label{
+    margin-left:0;
+  }
+  .lap-header .lap-value{
+    margin-left:0;
+  }
+  .eyebrow{
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:0.18em;
+    color:var(--grey);
+    text-transform:uppercase;
+    margin-bottom:4px;
+  }
+  .lap-value{
+    font-weight:900;
+    font-size:34px;
+    line-height:1;
+    color:var(--white);
+    font-variant-numeric: tabular-nums;
+  }
+  .lap-value .total{
+    color:var(--grey);
+    font-weight:600;
+    font-size:22px;
+  }
+  .lap-value span[title]{
+    cursor:pointer;
+    border-radius:3px;
+    transition: color 0.15s ease;
+  }
+  .lap-value span[title]:hover{
+    color:var(--amber);
+  }
+  .lap-bar{
+    margin-top:8px;
+    width:150px;
+    height:4px;
+    background:rgba(255,255,255,0.08);
+    border-radius:2px;
+    overflow:hidden;
+  }
+  .lap-bar-fill{
+    height:100%;
+    width:0%;
+    background: linear-gradient(90deg, var(--race-red), var(--amber));
+    transition: width 0.35s ease;
+  }
+  .lap-bar-fill.final{
+    background: linear-gradient(90deg, var(--amber), var(--green));
+  }
+
+  .timer-segment{
+    min-width:190px;
+    flex:1;
+  }
+  #panelRace .timer-segment{
+    padding-left:20px;
+    padding-right:20px;
+  }
+  #panelQuali{
+    min-width:680px;
+  }
+  #panelQuali .segment{
+    padding:10px 20px;
+    align-items:center;
+    text-align:center;
+    flex:1 1 0;
+    width:auto;
+    min-width:0;
+  }
+  #panelQuali .lap-segment{
+    flex:1 1 0;
+    width:auto;
+  }
+  #panelQuali .eyebrow{
+    margin-left:0;
+  }
+  #panelQuali .status-row{
+    justify-content:center;
+  }
+  #panelQuali .session-tabs{
+    margin-bottom:4px;
+  }
+  /* Q3に進んだら左側(セッションタイマー)を消し、全体タイマーだけにする */
+  /* パネル幅は変えず、左側は「Q3」の文字だけ残す */
+  .solo-label{ display:none; }
+  #panelQuali.solo .lap-segment .session-tabs,
+  #panelQuali.solo .lap-segment .status-row,
+  #panelQuali.solo .lap-segment .timer-value{ display:none; }
+  #panelQuali.solo .solo-label{
+    display:block;
+    font-weight:900;
+    font-size:64px;
+    line-height:1;
+    letter-spacing:0.04em;
+    color:#3fb6ff;
+  }
+  /* 予選時のみ表示する全体タイマー加減ボタン(操作パネル側) */
+  body.mode-quali .race-only{ display:none; } /* 予選タブ表示中は決勝用ボタンを隠す */
+  #qualiAdjust{ display:none; }
+  #qualiAdjust.active{ display:contents; }
+  .timer-value span.editing{ display:none; }
+  .timer-value{
+    font-family:'Space Mono', monospace;
+    font-weight:700;
+    font-size:40px;
+    letter-spacing:0.02em;
+    color:var(--white);
+    font-variant-numeric: tabular-nums;
+    display:flex;
+    align-items:baseline;
+    gap:2px;
+  }
+  .timer-value .ms{
+    font-size:18px;
+    color:var(--grey);
+  }
+  #panelQuali .timer-value{
+    font-size:44px;
+    justify-content:center;
+  }
+  #panelQuali .timer-value .ms{
+    font-size:20px;
+  }
+  .status-dot{
+    width:9px; height:9px; border-radius:50%;
+    background:var(--grey);
+    display:inline-block;
+    margin-right:8px;
+  }
+  .status-dot.running{ background:var(--green); box-shadow:0 0 8px var(--green); }
+  .status-dot.paused{ background:var(--amber); }
+  .status-dot.running.quali-dot{ background:#3fb6ff; box-shadow:0 0 8px #3fb6ff; }
+  .status-dot.ended{ background:var(--race-red); box-shadow:0 0 8px var(--race-red); animation: pulse-ended 1s ease-in-out infinite; }
+  @keyframes pulse-ended{
+    0%, 100%{ opacity:1; }
+    50%{ opacity:0.35; }
+  }
+  .status-row{ display:flex; align-items:center; }
+
+  /* --- control chrome, hidden on air with H --- */
+  /* パネルの下に通常フローで並べる（fixedをやめてタイマーへ重ならないように） */
+  #hint{
+    margin-top:10px;
+    font-family:'Space Mono', monospace;
+    font-size:11px;
+    color:rgba(255,255,255,0.55);
+    background:rgba(10,12,14,0.7);
+    padding:8px 10px;
+    border-radius:4px;
+    line-height:1.6;
+    max-width:260px;
+  }
+  #hint.hidden{ display:none; }
+  #hint b{ color:var(--amber); }
+
+  #controls{
+    margin-top:10px;
+    display:flex;
+    justify-content:flex-start;
+    padding:0;
+    gap:8px;
+    flex-wrap:wrap;
+    font-family:'Titillium Web', sans-serif;
+  }
+  #controls.hidden{ display:none; }
+  #controls button{
+    background:var(--carbon-2);
+    color:var(--white);
+    border:1px solid rgba(255,255,255,0.12);
+    padding:8px 14px;
+    font-size:13px;
+    font-weight:600;
+    border-radius:4px;
+    cursor:pointer;
+    letter-spacing:0.02em;
+  }
+  #controls button:hover{ border-color:var(--race-red); color:var(--amber); }
+  #controls button:active{ transform:translateY(1px); }
+
+  .lap-edit-input{
+    display:none;
+    font-family:'Space Mono', monospace;
+    font-weight:700;
+    font-size:26px;
+    width:64px;
+    text-align:center;
+    background:var(--carbon-2);
+    color:var(--amber);
+    border:1px solid var(--amber);
+    border-radius:4px;
+    outline:none;
+    padding:0 2px;
+    vertical-align:middle;
+  }
+  .lap-edit-input.active{ display:inline-block; }
+  .lap-value span.editing, .auto-lap-interval.editing{ display:none; }
+
+  .auto-lap-row{
+    margin-top:8px;
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:0.03em;
+  }
+  .auto-lap-toggle{
+    cursor:pointer;
+    padding:2px 7px;
+    border-radius:3px;
+    border:1px solid rgba(255,255,255,0.15);
+    color:var(--grey);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+  }
+  .auto-lap-toggle.on{
+    color:#0a0c0e;
+    background:var(--green);
+    border-color:var(--green);
+  }
+  .auto-lap-toggle:hover{ border-color:var(--amber); }
+  .auto-lap-interval{
+    color:var(--grey);
+    cursor:pointer;
+    border-bottom:1px dashed rgba(255,255,255,0.25);
+  }
+  .auto-lap-interval:hover{ color:var(--amber); }
+  .auto-lap-row .lap-edit-input{
+    font-size:13px;
+    width:52px;
+    padding:0;
+  }
+
+  /* --- mode tabs (operator-only, lives in the controls bar) --- */
+  #modeTabs{
+    display:flex;
+    gap:6px;
+    margin-right:10px;
+    padding-right:10px;
+    border-right:1px solid rgba(255,255,255,0.15);
+  }
+  #modeTabs button{
+    background:var(--carbon-2);
+    color:var(--grey);
+    border:1px solid rgba(255,255,255,0.12);
+    padding:8px 16px;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    border-radius:4px;
+    cursor:pointer;
+  }
+  #modeTabs button.active{
+    color:#0a0c0e;
+    background:var(--amber);
+    border-color:var(--amber);
+  }
+  #modeTabs button[data-mode="quali"].active{
+    background:#3fb6ff;
+    border-color:#3fb6ff;
+  }
+
+  /* on-air mode badge, small corner label on the panel itself */
+  .mode-badge{
+    position:absolute;
+    top:-1px; left:-1px;
+    font-size:11px;
+    font-weight:900;
+    letter-spacing:0.05em;
+    padding:3px 10px 3px 8px;
+    color:#0a0c0e;
+    background:var(--amber);
+    border-bottom-right-radius:6px;
+  }
+  .mode-badge.quali{ background:#3fb6ff; }
+
+  /* --- qualifying panel --- */
+  .session-tabs{
+    display:flex;
+    justify-content:center;
+    gap:7px;
+  }
+  .session-tab{
+    background:var(--carbon-2);
+    color:var(--grey);
+    border:1px solid rgba(255,255,255,0.14);
+    font-family:'Titillium Web', sans-serif;
+    font-weight:700;
+    font-size:15px;
+    padding:7px 14px;
+    border-radius:5px;
+    cursor:pointer;
+    letter-spacing:0.03em;
+  }
+  .session-tab:hover{ border-color:#3fb6ff; color:#3fb6ff; }
+  .session-tab.active{
+    background:#3fb6ff;
+    color:#0a0c0e;
+    border-color:#3fb6ff;
+  }
+  #qualiTimeMain, #qualiMasterMain{
+    cursor:pointer;
+  }
+  #qualiTimeMain:hover, #qualiMasterMain:hover{ color:#3fb6ff; }
+  #qualiDurationInput, #qualiMasterInput{
+    font-size:34px;
+    width:105px;
+  }
+  .session-tab{ padding:5px 14px; font-size:14px; }
+  .panel-view{ display:none; }
+  .panel-view.active{ display:flex; }
+</style>
+</head>
+<body>
+
+  <div id="app">
+    <div class="panel panel-view active" id="panelRace" data-mode="race">
+      <div class="mode-badge">決勝</div>
+      <div class="segment lap-segment">
+        <div class="checker"></div>
+        <div class="lap-header">
+          <span class="eyebrow lap-label">LAP</span>
+          <div class="lap-value">
+            <span id="lapCurrent" title="クリックで現在ラップを設定">1</span><input id="lapCurrentInput" class="lap-edit-input" type="text" inputmode="numeric" maxlength="4"><span class="total" id="lapTotalWrap">&nbsp;/&nbsp;<span id="lapTotal" title="クリックで総ラップ数を設定">--</span><input id="lapTotalInput" class="lap-edit-input" type="text" inputmode="numeric" maxlength="4"></span>
+          </div>
+        </div>
+        <div class="lap-bar"><div class="lap-bar-fill" id="lapBarFill"></div></div>
+        <div class="auto-lap-row">
+          <span class="auto-lap-toggle" id="autoLapToggle" title="クリックでON/OFF切替 (A)">自動LAP OFF</span>
+          <span>/</span>
+          <span class="auto-lap-interval" id="autoLapIntervalLabel" title="クリックで間隔(秒)を設定 (I)">90秒毎</span>
+          <input id="autoLapIntervalInput" class="lap-edit-input" type="text" inputmode="numeric" maxlength="5">
+        </div>
+      </div>
+      <div class="segment timer-segment">
+        <div class="status-row">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="eyebrow" id="statusLabel">STOPPED</span>
+        </div>
+        <div class="timer-value">
+          <span id="timeMain">00:00:00</span><span class="ms" id="timeMs">.0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel panel-view" id="panelQuali" data-mode="quali">
+      <div class="mode-badge quali">予選</div>
+      <div class="segment lap-segment">
+        <div class="checker"></div>
+        <div class="session-tabs">
+          <button class="session-tab active" data-session="Q1">Q1</button>
+          <button class="session-tab" data-session="Q2">Q2</button>
+          <button class="session-tab" data-session="Q3">Q3</button>
+        </div>
+        <div class="solo-label">Q3</div>
+        <div class="status-row">
+          <span class="status-dot" id="qualiStatusDot"></span>
+          <span class="eyebrow" id="qualiStatusLabel">Q1 STOPPED</span>
+        </div>
+        <div class="timer-value">
+          <span id="qualiTimeMain" title="クリックでこのセッションの時間(分:秒)を設定">18:00</span><span class="ms" id="qualiTimeMs">.0</span>
+          <input id="qualiDurationInput" class="lap-edit-input" type="text" inputmode="numeric" maxlength="5" placeholder="18:00">
+        </div>
+      </div>
+      <div class="segment timer-segment">
+        <div class="status-row">
+          <span class="status-dot" id="qualiMasterDot"></span>
+          <span class="eyebrow" id="qualiMasterLabel">TOTAL STOPPED</span>
+        </div>
+        <div class="timer-value">
+          <span id="qualiMasterMain" title="クリックで全体の時間(分:秒)を設定">60:00</span><span class="ms" id="qualiMasterMs">.0</span>
+          <input id="qualiMasterInput" class="lap-edit-input" type="text" inputmode="numeric" maxlength="5" placeholder="60:00">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="hint">
+    <div><b>Space</b> スタート/停止　<b>R</b> リセット</div>
+    <div><b>&#8594; / N</b> ラップ+1　<b>&#8592; / P</b> ラップ-1</div>
+    <div><b>T</b> 総ラップ数を設定　<b>C</b> 現在ラップを直接設定</div>
+    <div>&nbsp;&nbsp;(数字入力→<b>Enter</b>確定 / <b>Esc</b>キャンセル)</div>
+    <div><b>A</b> 自動LAP ON/OFF　<b>I</b> 自動LAP間隔(秒)を設定</div>
+    <div><b>H</b> このパネルを隠す</div>
+    <div><b>1</b> 決勝タブ　<b>2</b> 予選タブ</div>
+    <div>予選: <b>Q/W/E</b>=Q1/Q2/Q3の開始位置へ移動　<b>Space/R</b>は共通</div>
+    <div>&nbsp;&nbsp;Q1→Q2→Q3は全体タイマーに連動して自動切替</div>
+    <div>&nbsp;&nbsp;Q3到達で左側を消し全体タイマーのみ表示</div>
+    <div>&nbsp;&nbsp;<b>&#8592; / &#8594;</b> -1秒/+1秒　<b>&#8595; / &#8593;</b> -10秒/+10秒(全体と表示中Q)</div>
+    <div>&nbsp;&nbsp;時間クリックで編集(分:秒)</div>
+  </div>
+
+  <div id="controls">
+    <div id="modeTabs">
+      <button id="tabRace" data-mode="race" class="active">決勝</button>
+      <button id="tabQuali" data-mode="quali">予選</button>
+    </div>
+    <button id="btnToggle">スタート</button>
+    <button id="btnReset">リセット</button>
+    <div id="qualiAdjust">
+      <button id="btnQM10" data-delta="-10">-10秒</button>
+      <button id="btnQM1" data-delta="-1">-1秒</button>
+      <button id="btnQP1" data-delta="1">+1秒</button>
+      <button id="btnQP10" data-delta="10">+10秒</button>
+    </div>
+    <button id="btnLapMinus" class="race-only">LAP -1</button>
+    <button id="btnLapPlus" class="race-only">LAP +1</button>
+    <button id="btnSetCurrent" class="race-only">現在ラップ設定</button>
+    <button id="btnSetTotal" class="race-only">総ラップ数設定</button>
+    <button id="btnAutoLap" class="race-only">自動LAP ON/OFF</button>
+    <button id="btnAutoLapInterval" class="race-only">自動LAP間隔設定</button>
+    <button id="btnHide">パネルを隠す (H)</button>
+    <button id="btnBg">背景プレビュー切替</button>
+  </div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'f1_overlay_state_v1';
+
+  // 予選: 全体タイマー(masterMs)の経過時間だけを基準に、Q1/Q2/Q3を導出する。
+  // Q1は経過0秒で開始。Q2/Q3は「全体の残りがstartRemainingになった時点」で自動開始。
+  function defaultQuali(){
+    return {
+      masterMs: 60*60000,
+      durations: { Q1: 18*60000, Q2: 15*60000, Q3: 13*60000 },
+      startRemaining: { Q2: 35*60000, Q3: 13*60000 },
+      segAdj: {}, // 秒数加減ボタンによる各セッションの増減分(ms)
+      frozen: {}, // 開始済みセッションの開始位置(全体時間を加減しても動かさない)
+      elapsedMs: 0,
+      running: false,
+      startedAt: null
+    };
+  }
+
+  function loadState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){
+        const s = JSON.parse(raw);
+        if(!s.autoLap) s.autoLap = { enabled:false, intervalMs:90000, baseElapsedMs:0, baseLap:0 };
+        if(!s.mode) s.mode = 'race';
+        if(!s.quali || s.quali.masterMs === undefined) s.quali = defaultQuali(); // 旧形式は初期化
+        if(!s.quali.frozen) s.quali.frozen = {};
+        if(!s.quali.segAdj) s.quali.segAdj = {};
+        return s;
+      }
+    }catch(e){}
+    return {
+      running:false, elapsedMs:0, startedAt:null, currentLap:1, totalLaps:null,
+      autoLap: { enabled:false, intervalMs:90000, baseElapsedMs:0, baseLap:1 },
+      mode: 'race',
+      quali: defaultQuali()
+    };
+  }
+  let state = loadState();
+
+  function saveState(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    }catch(e){
+      console.warn('F1 overlay: state could not be saved (storage unavailable or full).', e);
+    }
+  }
+
+  const el = {
+    lapCurrent: document.getElementById('lapCurrent'),
+    lapTotal: document.getElementById('lapTotal'),
+    lapCurrentInput: document.getElementById('lapCurrentInput'),
+    lapTotalInput: document.getElementById('lapTotalInput'),
+    autoLapToggle: document.getElementById('autoLapToggle'),
+    autoLapIntervalLabel: document.getElementById('autoLapIntervalLabel'),
+    autoLapIntervalInput: document.getElementById('autoLapIntervalInput'),
+    lapBarFill: document.getElementById('lapBarFill'),
+    timeMain: document.getElementById('timeMain'),
+    timeMs: document.getElementById('timeMs'),
+    statusDot: document.getElementById('statusDot'),
+    statusLabel: document.getElementById('statusLabel'),
+    panel: document.getElementById('panelRace'),
+    panelQuali: document.getElementById('panelQuali'),
+    qualiTimeMain: document.getElementById('qualiTimeMain'),
+    qualiTimeMs: document.getElementById('qualiTimeMs'),
+    qualiDurationInput: document.getElementById('qualiDurationInput'),
+    qualiStatusDot: document.getElementById('qualiStatusDot'),
+    qualiStatusLabel: document.getElementById('qualiStatusLabel'),
+    qualiMasterMain: document.getElementById('qualiMasterMain'),
+    qualiMasterMs: document.getElementById('qualiMasterMs'),
+    qualiMasterInput: document.getElementById('qualiMasterInput'),
+    qualiMasterDot: document.getElementById('qualiMasterDot'),
+    qualiMasterLabel: document.getElementById('qualiMasterLabel'),
+    controls: document.getElementById('controls'),
+    hint: document.getElementById('hint'),
+  };
+
+  function currentElapsed(){
+    if(state.running && state.startedAt){
+      return state.elapsedMs + (Date.now() - state.startedAt);
+    }
+    return state.elapsedMs;
+  }
+
+  function fmt(ms){
+    const totalSec = Math.floor(ms/1000);
+    const h = Math.floor(totalSec/3600);
+    const m = Math.floor((totalSec%3600)/60);
+    const s = totalSec%60;
+    const tenths = Math.floor((ms%1000)/100);
+    const pad = n => String(n).padStart(2,'0');
+    return { main: `${pad(h)}:${pad(m)}:${pad(s)}`, ms: `.${tenths}` };
+  }
+
+  function render(){
+    const e = currentElapsed();
+    const t = fmt(e);
+    el.timeMain.textContent = t.main;
+    el.timeMs.textContent = t.ms;
+
+    tickAutoLap(e);
+
+    el.lapCurrent.textContent = state.currentLap;
+    if(state.totalLaps){
+      el.lapTotal.textContent = state.totalLaps;
+      const pct = Math.min(100, (state.currentLap/state.totalLaps)*100);
+      el.lapBarFill.style.width = pct + '%';
+      el.lapBarFill.classList.toggle('final', state.currentLap >= state.totalLaps);
+    } else {
+      el.lapTotal.textContent = '--';
+      el.lapBarFill.style.width = '0%';
+    }
+
+    const finished = !!state.totalLaps && state.currentLap >= state.totalLaps;
+    el.statusDot.classList.toggle('running', state.running);
+    el.statusDot.classList.toggle('paused', !state.running && state.elapsedMs>0 && !finished);
+    el.statusDot.classList.toggle('ended', finished);
+    el.statusLabel.textContent = state.running ? 'RUNNING' : (finished ? 'FINISH' : (state.elapsedMs>0 ? 'PAUSED' : 'STOPPED'));
+
+    el.autoLapToggle.textContent = state.autoLap.enabled ? '自動LAP ON' : '自動LAP OFF';
+    el.autoLapToggle.classList.toggle('on', state.autoLap.enabled);
+    el.autoLapIntervalLabel.textContent = Math.round(state.autoLap.intervalMs/1000) + '秒毎';
+
+    renderQuali();
+    updateToggleButtonLabel();
+  }
+
+  function fmtCountdown(ms){
+    const remainingMs = Math.max(0, ms);
+    const totalSec = Math.floor(remainingMs/1000);
+    const m = Math.floor(totalSec/60);
+    const s = totalSec%60;
+    const tenths = Math.floor((remainingMs%1000)/100);
+    const pad = n => String(n).padStart(2,'0');
+    return { main: `${pad(m)}:${pad(s)}`, ms: `.${tenths}` };
+  }
+
+  // 各セッションの開始位置(全体タイマーの経過ms)
+  function sessionOffset(session){
+    const q = state.quali;
+    if(session === 'Q1') return 0;
+    if(q.frozen && q.frozen[session] !== undefined) return q.frozen[session];
+    return Math.max(0, q.masterMs - q.startRemaining[session]);
+  }
+
+  // すでに開始しているセッションの開始位置を固定する。
+  // 全体タイマーを加減しても、動いているセッションタイマーは変わらない。
+  function qualiFreezeStarted(){
+    const q = state.quali;
+    const e = qualiElapsed();
+    ['Q2','Q3'].forEach(s=>{
+      if(q.frozen[s] === undefined && sessionOffset(s) <= e) q.frozen[s] = sessionOffset(s);
+    });
+  }
+
+  // 全体タイマーと、いま表示中のセッションタイマーの残り時間を deltaMs だけ増減する(0未満にはしない)
+  function adjustQualiMaster(deltaMs){
+    const q = state.quali;
+    const e = qualiElapsed();
+    const session = qualiSessionAt(e);
+    const off = sessionOffset(session);
+    qualiFreezeStarted();
+    q.elapsedMs = e;
+    if(q.running) q.startedAt = Date.now();
+    q.masterMs = Math.max(e, q.masterMs + deltaMs);
+    // セッション側: 開始済みなら経過分、待機中なら1秒を下限にする
+    const minDur = (e >= off) ? (e - off) : 1000;
+    const newDur = Math.max(minDur, segDuration(session) + deltaMs);
+    q.segAdj[session] = newDur - q.durations[session];
+    saveState();
+    render();
+  }
+
+  function qualiElapsed(){
+    const q = state.quali;
+    let e = q.elapsedMs;
+    if(q.running && q.startedAt) e += Date.now() - q.startedAt;
+    return Math.min(e, q.masterMs);
+  }
+
+  // 経過時間から「今表示すべきセッション」を決める。
+  // Q1が0になったらQ2へ、Q2が0になったらQ3へ表示を切り替える(開始は各開始位置まで待機)。
+  function qualiSessionAt(e){
+    const q = state.quali;
+    if(e < segDuration('Q1')) return 'Q1';
+    if(e < sessionOffset('Q2') + segDuration('Q2')) return 'Q2';
+    return 'Q3';
+  }
+
+  function qualiSegmentRemaining(session, e){
+    const q = state.quali;
+    const off = sessionOffset(session);
+    if(e < off) return segDuration(session); // 待機中: フル時間で表示
+    return Math.max(0, segDuration(session) - (e - off));
+  }
+
+  // セッションの実効時間 = 設定時間 + 秒数加減ボタンによる増減分
+  function segDuration(session){
+    const q = state.quali;
+    return q.durations[session] + (q.segAdj[session] || 0);
+  }
+
+  function renderQuali(){
+    const q = state.quali;
+    let e = qualiElapsed();
+
+    // 全体タイマーが0になったら停止
+    if(q.running && e >= q.masterMs){
+      q.elapsedMs = q.masterMs;
+      q.running = false;
+      q.startedAt = null;
+      e = q.masterMs;
+      saveState();
+      flashPanel();
+    }
+
+    const session = qualiSessionAt(e);
+    const segRem = qualiSegmentRemaining(session, e);
+    const masterRem = q.masterMs - e;
+
+    // セッションタイマー
+    const st = fmtCountdown(segRem);
+    el.qualiTimeMain.textContent = st.main;
+    el.qualiTimeMs.textContent = st.ms;
+    const waiting = e < sessionOffset(session);
+    const segEnded = !waiting && segRem <= 0;
+    const segRunning = q.running && !waiting && !segEnded;
+    el.qualiStatusDot.classList.toggle('quali-dot', true);
+    el.qualiStatusDot.classList.toggle('running', segRunning);
+    el.qualiStatusDot.classList.toggle('paused', !q.running && !segEnded && e > 0);
+    el.qualiStatusDot.classList.toggle('ended', segEnded);
+    let segLabel;
+    if(segEnded) segLabel = "TIME'S UP";
+    else if(segRunning) segLabel = 'RUNNING';
+    else if(waiting && q.running) segLabel = 'STANDBY';
+    else if(e > 0) segLabel = 'PAUSED';
+    else segLabel = 'STOPPED';
+    el.qualiStatusLabel.textContent = `${session} ${segLabel}`;
+
+    // 全体タイマー
+    const mt = fmtCountdown(masterRem);
+    el.qualiMasterMain.textContent = mt.main;
+    el.qualiMasterMs.textContent = mt.ms;
+    const masterEnded = masterRem <= 0;
+    el.qualiMasterDot.classList.toggle('quali-dot', true);
+    el.qualiMasterDot.classList.toggle('running', q.running);
+    el.qualiMasterDot.classList.toggle('paused', !q.running && !masterEnded && e > 0);
+    el.qualiMasterDot.classList.toggle('ended', masterEnded);
+    el.qualiMasterLabel.textContent = 'TOTAL ' + (q.running ? 'RUNNING' : (masterEnded ? "TIME'S UP" : (e > 0 ? 'PAUSED' : 'STOPPED')));
+
+    document.querySelectorAll('.session-tab').forEach(btn=>{
+      btn.classList.toggle('active', btn.dataset.session === session);
+    });
+
+    // Q3に進んだら左側を消して全体タイマーだけにする
+    el.panelQuali.classList.toggle('solo', session === 'Q3');
+
+    // セッションが切り替わった/終了した瞬間にパネルを光らせる
+    const key = session + (segEnded ? ':end' : '');
+    if(qualiPrevKey !== null && qualiPrevKey !== key && q.running && state.mode === 'quali') flashPanel();
+    qualiPrevKey = key;
+  }
+  let qualiPrevKey = null;
+
+  function updateToggleButtonLabel(){
+    const running = (state.mode === 'race') ? state.running : state.quali.running;
+    document.getElementById('btnToggle').textContent = running ? '一時停止' : 'スタート';
+  }
+
+  function rebaseAutoLap(elapsedOverride){
+    state.autoLap.baseElapsedMs = (elapsedOverride !== undefined) ? elapsedOverride : currentElapsed();
+    state.autoLap.baseLap = state.currentLap;
+  }
+
+  function tickAutoLap(elapsed){
+    if(!state.autoLap.enabled) return;
+    if(elapsed < state.autoLap.baseElapsedMs) return;
+    const steps = Math.floor((elapsed - state.autoLap.baseElapsedMs) / state.autoLap.intervalMs);
+    let expected = state.autoLap.baseLap + steps;
+    let hitLimit = false;
+    if(state.totalLaps && expected > state.totalLaps){
+      expected = state.totalLaps; // 最大値を超えて増やさない
+      hitLimit = true;
+    }
+    if(expected > state.currentLap){
+      state.currentLap = expected;
+      saveState();
+      flashPanel();
+    }
+    if(hitLimit && state.running){
+      state.elapsedMs = currentElapsed();
+      state.running = false;
+      state.startedAt = null;
+      saveState();
+    }
+  }
+
+  function flashPanel(){
+    const target = (state.mode === 'quali') ? el.panelQuali : el.panel;
+    target.classList.remove('flash');
+    void target.offsetWidth; // reflow to restart animation
+    target.classList.add('flash');
+  }
+
+  function toggleQualiRun(){
+    const q = state.quali;
+    if(q.running){
+      q.elapsedMs = qualiElapsed();
+      q.running = false;
+      q.startedAt = null;
+    } else {
+      if(qualiElapsed() >= q.masterMs) return; // 全体が0なら再スタートしない
+      q.running = true;
+      q.startedAt = Date.now();
+    }
+    saveState();
+    render();
+  }
+
+  function resetQuali(){
+    const q = state.quali;
+    q.running = false;
+    q.startedAt = null;
+    q.elapsedMs = 0;
+    q.masterMs = 60*60000; // トータルを60分に戻す
+    q.segAdj = {};
+    q.frozen = {};
+    qualiPrevKey = null;
+    saveState();
+    render();
+  }
+
+  // 指定セッションの開始位置へ移動(走行中ならそのまま走り続ける)
+  function switchSession(session){
+    const q = state.quali;
+    q.frozen = {};
+    q.elapsedMs = sessionOffset(session);
+    if(q.running) q.startedAt = Date.now();
+    qualiPrevKey = null;
+    saveState();
+    render();
+  }
+
+  function toggleActiveTimer(){
+    if(state.mode === 'race') toggleRun();
+    else toggleQualiRun();
+  }
+
+  function resetActiveTimer(){
+    if(state.mode === 'race') reset();
+    else resetQuali();
+  }
+
+  function toggleRun(){
+    if(state.running){
+      state.elapsedMs = currentElapsed();
+      state.running = false;
+      state.startedAt = null;
+    } else {
+      state.running = true;
+      state.startedAt = Date.now();
+    }
+    saveState();
+    render();
+  }
+
+  function reset(){
+    state.running = false;
+    state.startedAt = null;
+    state.elapsedMs = 0;
+    state.currentLap = 1;
+    state.autoLap.baseElapsedMs = 0;
+    state.autoLap.baseLap = 1;
+    saveState();
+    render();
+  }
+
+  function lapDelta(d){
+    state.currentLap = Math.max(1, state.currentLap + d);
+    rebaseAutoLap();
+    saveState();
+    render();
+    flashPanel();
+  }
+
+  function setTotalLaps(){
+    openInlineEdit('total');
+  }
+
+  function setCurrentLap(){
+    openInlineEdit('current');
+  }
+
+  function setAutoLapInterval(){
+    openInlineEdit('interval');
+  }
+
+  function toggleAutoLap(){
+    state.autoLap.enabled = !state.autoLap.enabled;
+    if(state.autoLap.enabled){
+      rebaseAutoLap(); // count from now, not from race start
+    }
+    saveState();
+    render();
+    flashPanel();
+  }
+
+  function setQualiDuration(){
+    openInlineEdit('qualiDuration');
+  }
+
+  const inlineFieldMap = {
+    current: { span: () => el.lapCurrent, input: () => el.lapCurrentInput },
+    total:   { span: () => el.lapTotal,   input: () => el.lapTotalInput },
+    interval:{ span: () => el.autoLapIntervalLabel, input: () => el.autoLapIntervalInput },
+    qualiDuration: { span: () => el.qualiTimeMain,   input: () => el.qualiDurationInput },
+    qualiMaster:   { span: () => el.qualiMasterMain, input: () => el.qualiMasterInput },
+  };
+
+  function openInlineEdit(type){
+    const target = inlineFieldMap[type];
+    const displaySpan = target.span();
+    const input = target.input();
+
+    // close any other open input first
+    Object.keys(inlineFieldMap).forEach(k=>{
+      if(k !== type){
+        const other = inlineFieldMap[k];
+        closeInlineEdit(other.input(), other.span(), false);
+      }
+    });
+
+    displaySpan.classList.add('editing');
+    if(type === 'total') input.value = state.totalLaps || '';
+    else if(type === 'current') input.value = String(state.currentLap);
+    else if(type === 'interval') input.value = String(Math.round(state.autoLap.intervalMs/1000));
+    else if(type === 'qualiDuration') input.value = fmtMmSs(segDuration(qualiSessionAt(qualiElapsed())));
+    else if(type === 'qualiMaster') input.value = fmtMmSs(state.quali.masterMs);
+    input.classList.add('active');
+    input.dataset.type = type;
+    input.focus();
+    input.select();
+  }
+
+  function fmtMmSs(ms){
+    const totalSec = Math.max(0, Math.round(ms/1000));
+    const m = Math.floor(totalSec/60);
+    const s = totalSec%60;
+    return `${m}:${String(s).padStart(2,'0')}`;
+  }
+
+  // "18:30" -> 1110, "18" -> 1080 (分), 純粋な数値のみは分として扱う
+  function parseMmSsToMs(value){
+    const v = value.trim();
+    if(v.includes(':')){
+      const [mPart, sPart] = v.split(':');
+      const m = parseInt(mPart, 10) || 0;
+      const s = parseInt(sPart, 10) || 0;
+      return (m*60 + s) * 1000;
+    }
+    const n = parseInt(v, 10);
+    if(isNaN(n)) return null;
+    return n * 60000;
+  }
+
+  function closeInlineEdit(input, displaySpan, commit){
+    if(!input.classList.contains('active')) return;
+    if(commit){
+      const type = input.dataset.type;
+      if(type === 'qualiDuration' || type === 'qualiMaster'){
+        const ms = parseMmSsToMs(input.value);
+        if(ms !== null && ms > 0){
+          const q = state.quali;
+          if(type === 'qualiMaster'){
+            // 実行中でも経過時間を確定してから全体時間を変更する
+            qualiFreezeStarted();
+            q.elapsedMs = qualiElapsed();
+            if(q.running) q.startedAt = Date.now();
+            q.masterMs = ms;
+            q.elapsedMs = Math.min(q.elapsedMs, ms);
+          } else {
+            const s = qualiSessionAt(qualiElapsed());
+            q.durations[s] = ms;
+            q.segAdj[s] = 0; // 入力値を実効時間として採用
+          }
+          saveState();
+          flashPanel();
+        }
+      } else {
+        const n = parseInt(input.value, 10);
+        if(!isNaN(n) && n >= 0){
+          if(type === 'total' && n > 0){
+            state.totalLaps = n;
+            if(state.currentLap > n){
+              state.currentLap = n;
+              rebaseAutoLap();
+            }
+          } else if(type === 'current'){
+            state.currentLap = n;
+            rebaseAutoLap();
+          } else if(type === 'interval' && n > 0){
+            state.autoLap.intervalMs = n * 1000;
+            rebaseAutoLap();
+          }
+          saveState();
+          flashPanel();
+        }
+      }
+    }
+    input.classList.remove('active');
+    displaySpan.classList.remove('editing');
+    render();
+  }
+
+  function switchMode(mode){
+    state.mode = mode;
+    saveState();
+    el.panel.classList.toggle('active', mode === 'race');
+    el.panelQuali.classList.toggle('active', mode === 'quali');
+    document.getElementById('tabRace').classList.toggle('active', mode === 'race');
+    document.getElementById('tabQuali').classList.toggle('active', mode === 'quali');
+    document.getElementById('qualiAdjust').classList.toggle('active', mode === 'quali');
+    document.body.classList.toggle('mode-quali', mode === 'quali');
+  }
+
+  function toggleChrome(){
+    el.controls.classList.toggle('hidden');
+    el.hint.classList.toggle('hidden');
+  }
+
+  function toggleBg(){
+    document.body.classList.toggle('preview-bg');
+  }
+
+  document.getElementById('btnToggle').addEventListener('click', toggleActiveTimer);
+  document.getElementById('btnReset').addEventListener('click', resetActiveTimer);
+  document.getElementById('btnLapMinus').addEventListener('click', ()=>lapDelta(-1));
+  document.getElementById('btnLapPlus').addEventListener('click', ()=>lapDelta(1));
+  document.getElementById('btnSetCurrent').addEventListener('click', setCurrentLap);
+  document.getElementById('btnSetTotal').addEventListener('click', setTotalLaps);
+  document.getElementById('btnAutoLap').addEventListener('click', toggleAutoLap);
+  document.getElementById('btnAutoLapInterval').addEventListener('click', setAutoLapInterval);
+  el.lapCurrent.addEventListener('click', setCurrentLap);
+  document.getElementById('lapTotal').addEventListener('click', setTotalLaps);
+  el.qualiTimeMain.addEventListener('click', setQualiDuration);
+  el.qualiMasterMain.addEventListener('click', ()=>openInlineEdit('qualiMaster'));
+  document.querySelectorAll('.session-tab').forEach(btn=>{
+    btn.addEventListener('click', ()=>switchSession(btn.dataset.session));
+  });
+  el.autoLapToggle.addEventListener('click', toggleAutoLap);
+  el.autoLapIntervalLabel.addEventListener('click', setAutoLapInterval);
+
+  function bindInlineInput(input, displaySpan){
+    input.addEventListener('keydown', (ev)=>{
+      ev.stopPropagation(); // prevent global shortcuts while typing
+      if(ev.key === 'Enter'){
+        closeInlineEdit(input, displaySpan, true);
+      } else if(ev.key === 'Escape'){
+        closeInlineEdit(input, displaySpan, false);
+      }
+    });
+    input.addEventListener('blur', ()=>{
+      closeInlineEdit(input, displaySpan, true);
+    });
+  }
+  bindInlineInput(el.lapCurrentInput, el.lapCurrent);
+  bindInlineInput(el.lapTotalInput, el.lapTotal);
+  bindInlineInput(el.autoLapIntervalInput, el.autoLapIntervalLabel);
+  bindInlineInput(el.qualiDurationInput, el.qualiTimeMain);
+  bindInlineInput(el.qualiMasterInput, el.qualiMasterMain);
+  document.getElementById('tabRace').addEventListener('click', ()=>switchMode('race'));
+  document.getElementById('tabQuali').addEventListener('click', ()=>switchMode('quali'));
+  document.getElementById('btnHide').addEventListener('click', toggleChrome);
+  document.getElementById('btnBg').addEventListener('click', toggleBg);
+  document.querySelectorAll('#qualiAdjust button').forEach(btn=>{
+    btn.addEventListener('click', ()=>adjustQualiMaster(parseInt(btn.dataset.delta, 10) * 1000));
+  });
+
+  window.addEventListener('keydown', (ev)=>{
+    const tag = document.activeElement && document.activeElement.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA') return; // 入力中はショートカット無効
+    switch(ev.code){
+      case 'Space': ev.preventDefault(); toggleActiveTimer(); break;
+      case 'KeyR': resetActiveTimer(); break;
+      case 'ArrowRight': ev.preventDefault(); if(state.mode === 'race') lapDelta(1); else adjustQualiMaster(1000); break;
+      case 'KeyN': if(state.mode === 'race') lapDelta(1); break;
+      case 'ArrowLeft': ev.preventDefault(); if(state.mode === 'race') lapDelta(-1); else adjustQualiMaster(-1000); break;
+      case 'KeyP': if(state.mode === 'race') lapDelta(-1); break;
+      case 'ArrowUp': if(state.mode === 'quali'){ ev.preventDefault(); adjustQualiMaster(10000); } break;
+      case 'ArrowDown': if(state.mode === 'quali'){ ev.preventDefault(); adjustQualiMaster(-10000); } break;
+      case 'KeyT': if(state.mode === 'race') setTotalLaps(); break;
+      case 'KeyA': if(state.mode === 'race') toggleAutoLap(); break;
+      case 'KeyI': if(state.mode === 'race') setAutoLapInterval(); break;
+      case 'KeyC': if(state.mode === 'race') setCurrentLap(); break;
+      case 'KeyH': toggleChrome(); break;
+      case 'Digit1': switchMode('race'); break;
+      case 'Digit2': switchMode('quali'); break;
+      case 'KeyQ': if(state.mode === 'quali') switchSession('Q1'); break;
+      case 'KeyW': if(state.mode === 'quali') switchSession('Q2'); break;
+      case 'KeyE': if(state.mode === 'quali') switchSession('Q3'); break;
+    }
+  });
+
+  switchMode(state.mode || 'race');
+
+  const RENDER_INTERVAL_MS = 100; // display resolution is tenths of a second, no need to redraw at 60fps
+  let lastRenderAt = 0;
+  function loop(timestamp){
+    if(timestamp - lastRenderAt >= RENDER_INTERVAL_MS){
+      lastRenderAt = timestamp;
+      render();
+    }
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
